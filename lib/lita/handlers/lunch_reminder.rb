@@ -155,6 +155,15 @@ module Lita
         response.reply("tú te lo pierdes, comerá #{enters} por ti")
       end
 
+      route(/apuesto ([^\d]+) puntos( de karma)?/i, command: true) do |response|
+        wager = response.matches[0][0].to_i
+        unless @assigner.set_wager(response.user.mention_name, wager)
+          response.reply("no puedes apostar tanto karma, amiguito")
+          next
+        end
+        response.reply("apostaste #{wager} puntos de karma")
+      end
+
       def clean_mention_name(mention_name)
         mention_name.delete('@') if mention_name
       end

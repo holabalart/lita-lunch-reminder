@@ -16,12 +16,22 @@ module Lita
         @redis.get("#{mention_name}:karma").to_i || 0
       end
 
+      def set_wager(mention_name, wager)
+        can_wager = wager <= get_karma(mention_name).abs / 2
+        @redis.set("#{mention_name}:wager", wager.to_i) if can_wager
+        can_wager
+      end
+
+      def get_wager(mention_name)
+        (@redis.get("#{mention_name}:wager") || 1).to_i
+      end
+
       def increase_karma(mention_name)
         @redis.incr("#{mention_name}:karma")
       end
 
-      def decrease_karma(mention_name)
-        @redis.decr("#{mention_name}:karma")
+      def decrease_karma(mention_name, wager)
+        @redis.decrby("#{mention_name}:karma", wager)
       end
 
       def current_lunchers_list
@@ -80,6 +90,9 @@ module Lita
       end
 
       def reset_lunchers
+        lunchers_list.each do |luncher|
+          @redis.del("#{luncher}:wager")
+        end
         @redis.del("current_lunchers")
         @redis.del("winning_lunchers")
         @redis.del("already_assigned")
@@ -87,17 +100,27 @@ module Lita
 
       def karma_hash(list)
         kh = list.map { |m| [m, get_karma(m)] }.to_h
-        kl = kh.map { |k, v| [k, v - kh.values.min] }.to_h
-        kl.map { |k, v| [k, v.to_i.zero? ? 1 : v] }.to_h
+        kh.map { |k, v| [k, v - kh.values.min + 1] }.to_h
+      end
+
+      def wager_hash(list)
+        list.map { |m| [m, get_wager(m)] }.to_h
+      end
+
+      def karma_hash_with_wager(list)
+        kh = list.map { |m| [m, get_karma(m) + get_wager(m)] }.to_h
+        kh.map { |k, v| [k, v - kh.values.min + 1] }.to_h
       end
 
       def pick_winners(amount)
+        wh = wager_hash(current_lunchers_list)
+
         winners = Lita::Services::WeightedPicker.new(
-          karma_hash(current_lunchers_list)
+          karma_hash_with_wager(current_lunchers_list)
         ).sample(amount)
 
         winners.each do |w|
-          decrease_karma w
+          decrease_karma w, wh[w]
           add_to_winning_lunchers w
         end
       end
